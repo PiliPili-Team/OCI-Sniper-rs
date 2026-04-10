@@ -113,14 +113,23 @@ impl App {
         let locale = self.effective_locale(&config);
         initialize_logging(&config.app.log_dir)?;
         let i18n = I18nCatalog::initialize(&locales_dir(), locale.clone())?;
-        let credentials = config.oci.resolve_credentials()?;
+        println!("{}", i18n.t(&locale, "cli.test_api.phase.credentials", &[]));
+        let credentials = config
+            .oci
+            .resolve_credentials()
+            .map_err(|error| classify_test_api_error(&locale, i18n, &error))?;
         let client = OciClient::new(credentials);
-        let resolved = resolve_launch_config(&config, &client).await?;
+        println!("{}", i18n.t(&locale, "cli.test_api.phase.discovery", &[]));
+        let resolved = resolve_launch_config(&config, &client)
+            .await
+            .map_err(|error| classify_test_api_error(&locale, i18n, &error))?;
         let launch_config = &resolved.launch_config;
         print_launch_diagnostics(&locale, i18n, &resolved);
+        println!("{}", i18n.t(&locale, "cli.test_api.phase.auth", &[]));
         client
             .test_auth(&launch_config.compartment_id)
             .await
+            .map_err(|error| classify_test_api_error(&locale, i18n, &error))
             .context("OCI auth test request failed")?;
         println!("{}", i18n.t(&locale, "cli.test_api.success", &[]));
 
@@ -313,6 +322,88 @@ fn launch_strategy_label(strategy: LaunchStrategy) -> &'static str {
     match strategy {
         LaunchStrategy::ExplicitConfig => "explicit",
         LaunchStrategy::FreeTierFallback => "free-tier-fallback",
+    }
+}
+
+fn classify_test_api_error(
+    locale: &str,
+    i18n: &I18nCatalog,
+    error: &anyhow::Error,
+) -> anyhow::Error {
+    let details = error.to_string();
+    let key = match classify_error_kind(&details) {
+        TestApiErrorKind::Configuration => "cli.test_api.error.configuration",
+        TestApiErrorKind::Discovery => "cli.test_api.error.discovery",
+        TestApiErrorKind::Auth => "cli.test_api.error.auth",
+        TestApiErrorKind::Network => "cli.test_api.error.network",
+        TestApiErrorKind::Unknown => "cli.test_api.error.unknown",
+    };
+    anyhow!(i18n.t(locale, key, &[("details", &details)]))
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TestApiErrorKind {
+    Configuration,
+    Discovery,
+    Auth,
+    Network,
+    Unknown,
+}
+
+fn classify_error_kind(details: &str) -> TestApiErrorKind {
+    let lower = details.to_ascii_lowercase();
+    if lower.contains("failed to read config file")
+        || lower.contains("failed to parse config file")
+        || lower.contains("failed to read oci config file")
+        || lower.contains("oci profile")
+        || lower.contains("missing 'user'")
+        || lower.contains("missing 'fingerprint'")
+        || lower.contains("missing 'tenancy'")
+        || lower.contains("missing 'region'")
+        || lower.contains("missing 'key_file'")
+    {
+        return TestApiErrorKind::Configuration;
+    }
+    if lower.contains("no oci availability domain found")
+        || lower.contains("no available subnet found")
+        || lower.contains("no oracle linux image found")
+        || lower.contains("no free-tier shape candidates configured")
+        || lower.contains("failed to resolve default ssh public key")
+    {
+        return TestApiErrorKind::Discovery;
+    }
+    if lower.contains("oci request failed with status")
+        || lower.contains("oci auth test request failed")
+    {
+        return TestApiErrorKind::Auth;
+    }
+    if lower.contains("failed to execute oci get request")
+        || lower.contains("failed to execute oci post request")
+        || lower.contains("failed to build oci get url")
+    {
+        return TestApiErrorKind::Network;
+    }
+    TestApiErrorKind::Unknown
+}
+
+#[cfg(test)]
+mod error_tests {
+    use super::*;
+
+    #[test]
+    fn classifies_resource_discovery_errors() {
+        assert_eq!(
+            classify_error_kind("no available subnet found in tenancy compartment"),
+            TestApiErrorKind::Discovery
+        );
+    }
+
+    #[test]
+    fn classifies_network_errors() {
+        assert_eq!(
+            classify_error_kind("failed to execute OCI GET request"),
+            TestApiErrorKind::Network
+        );
     }
 }
 
