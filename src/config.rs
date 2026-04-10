@@ -135,6 +135,21 @@ pub struct TelegramConfig {
     pub mode: TelegramMode,
     #[serde(default)]
     pub webhook_url: Option<String>,
+    #[serde(default)]
+    pub language_preferences: HashMap<i64, String>,
+}
+
+impl TelegramConfig {
+    pub fn preferred_locale(&self, chat_id: i64, fallback: &str) -> String {
+        self.language_preferences
+            .get(&chat_id)
+            .cloned()
+            .unwrap_or_else(|| fallback.to_string())
+    }
+
+    pub fn set_preferred_locale(&mut self, chat_id: i64, locale: impl Into<String>) {
+        self.language_preferences.insert(chat_id, locale.into());
+    }
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, Default)]
@@ -420,6 +435,15 @@ key_file = /tmp/custom.pem
 
         assert_eq!(credentials.user, "custom-user");
         assert_eq!(credentials.region, "ap-seoul-1");
+    }
+
+    #[test]
+    fn stores_and_reads_language_preferences() {
+        let mut telegram = TelegramConfig::default();
+        telegram.set_preferred_locale(42, "zh-TW");
+
+        assert_eq!(telegram.preferred_locale(42, "en"), "zh-TW");
+        assert_eq!(telegram.preferred_locale(7, "en"), "en");
     }
 
     fn write_temp_file(contents: &str) -> PathBuf {

@@ -845,6 +845,7 @@ dependencies = [
  "chrono",
  "clap",
  "dirs",
+ "once_cell",
  "rand 0.8.5",
  "reqwest",
  "rsa",

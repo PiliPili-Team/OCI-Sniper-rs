@@ -1,0 +1,13 @@
+{
+  "cli.config.loaded": "已加载配置文件：{path}",
+  "cli.region.current": "当前区域：{region}",
+  "cli.shape.current": "当前机型：{shape}",
+  "cli.telegram.mode": "Telegram 模式：{mode}",
+  "cli.runtime.bootstrap": "运行时引导完成；日志系统和 Bot 循环将在后续模块继续接入。",
+  "cli.test_api.success": "OCI API 鉴权测试成功。",
+  "cli.bot.webhook_set": "Webhook 已设置为 {url}",
+  "cli.bot.webhook_cleared": "Webhook 已清除，已回退到 polling 模式。",
+  "bot.command.language.updated": "语言已切换为 {locale}。",
+  "bot.command.log.empty": "当前没有可用日志。",
+  "bot.command.start.success": "Sniper 已成功启动。"
+}

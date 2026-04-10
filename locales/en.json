@@ -1,0 +1,13 @@
+{
+  "cli.config.loaded": "Loaded config from {path}",
+  "cli.region.current": "Region: {region}",
+  "cli.shape.current": "Shape: {shape}",
+  "cli.telegram.mode": "Telegram mode: {mode}",
+  "cli.runtime.bootstrap": "Runtime bootstrap completed; logging and bot loop will continue in subsequent modules.",
+  "cli.test_api.success": "OCI API auth test succeeded.",
+  "cli.bot.webhook_set": "Webhook set to {url}",
+  "cli.bot.webhook_cleared": "Webhook cleared; fallback to polling.",
+  "bot.command.language.updated": "Language updated to {locale}.",
+  "bot.command.log.empty": "No logs available at the moment.",
+  "bot.command.start.success": "Sniper started successfully."
+}
