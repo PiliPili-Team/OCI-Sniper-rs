@@ -1,0 +1,27 @@
+[app]
+locale = "zh-CN"
+log_dir = "logs"
+
+[oci]
+config_file = "/Users/you/.oci/config"
+profile = "DEFAULT"
+
+[instance.free_tier_defaults]
+assign_public_ip = true
+
+[[instance.free_tier_defaults.shape_candidates]]
+shape = "VM.Standard.A1.Flex"
+ocpus = 4
+memory_in_gbs = 24
+
+[[instance.free_tier_defaults.shape_candidates]]
+shape = "VM.Standard.E2.1.Micro"
+ocpus = 1
+memory_in_gbs = 1
+
+[telegram]
+bot_token = "123456:ABCDEF"
+mode = "webhook"
+webhook_url = "https://your-domain.example/webhook"
+webhook_listen = "127.0.0.1:8443"
+webhook_path = "/webhook"

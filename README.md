@@ -33,7 +33,11 @@ cargo run -- -l zh-TW test-api --dump-launch-payload
 
 ## 配置
 
-示例见 [config.example.toml](/Users/hsuyelin/Documents/Developer/Github/OCI-Sniper-rs/config.example.toml)。
+示例见：
+
+- [config.example.toml](/Users/hsuyelin/Documents/Developer/Github/OCI-Sniper-rs/config.example.toml)：完整模板
+- [config.minimal.toml](/Users/hsuyelin/Documents/Developer/Github/OCI-Sniper-rs/config.minimal.toml)：最小 polling 模板
+- [config.webhook.toml](/Users/hsuyelin/Documents/Developer/Github/OCI-Sniper-rs/config.webhook.toml)：webhook 模板
 
 ### 1. OCI 认证配置
 
@@ -112,6 +116,46 @@ webhook_path = "/webhook"
 - `webhook_path` 用于反向代理场景下覆盖内部监听路径
 - 如果不设置 `webhook_listen`，会默认回退到 `0.0.0.0:<webhook_url 端口或 8443>`
 
+### 4. Webhook 部署建议
+
+推荐结构：
+
+1. `oci-sniper-rs` 监听本地地址，例如 `127.0.0.1:8443`
+2. 由 Nginx / Caddy / Traefik 暴露公网 HTTPS
+3. `telegram.webhook_url` 使用公网 HTTPS 地址
+4. `telegram.webhook_path` 与反代转发路径保持一致
+
+Nginx 示例：
+
+```nginx
+server {
+    listen 443 ssl http2;
+    server_name your-domain.example;
+
+    ssl_certificate     /path/to/fullchain.pem;
+    ssl_certificate_key /path/to/privkey.pem;
+
+    location /webhook {
+        proxy_pass http://127.0.0.1:8443/webhook;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+```
+
+对应配置：
+
+```toml
+[telegram]
+bot_token = "123456:ABCDEF"
+mode = "webhook"
+webhook_url = "https://your-domain.example/webhook"
+webhook_listen = "127.0.0.1:8443"
+webhook_path = "/webhook"
+```
+
 ## Bot 命令
 
 - `/start`
@@ -135,7 +179,10 @@ webhook_path = "/webhook"
 
 ## 快速开始
 
-1. 复制 [config.example.toml](/Users/hsuyelin/Documents/Developer/Github/OCI-Sniper-rs/config.example.toml) 为你自己的 `config.toml`
+1. 从下面三种模板里任选一种作为起点：
+   - [config.minimal.toml](/Users/hsuyelin/Documents/Developer/Github/OCI-Sniper-rs/config.minimal.toml)
+   - [config.webhook.toml](/Users/hsuyelin/Documents/Developer/Github/OCI-Sniper-rs/config.webhook.toml)
+   - [config.example.toml](/Users/hsuyelin/Documents/Developer/Github/OCI-Sniper-rs/config.example.toml)
 2. 准备标准 OCI 配置文件和 API 私钥
 3. 如需默认实例创建模式，确保存在可用 subnet 和默认 SSH 公钥
 4. 执行：
@@ -143,6 +190,24 @@ webhook_path = "/webhook"
 ```bash
 cargo run -- --lang zh-CN test-api
 cargo run -- --lang zh-CN run --dry-run
+```
+
+最小 polling 启动流程：
+
+```bash
+cp config.minimal.toml config.toml
+$EDITOR config.toml
+cargo run -- --lang zh-CN test-api
+cargo run -- --lang zh-CN run
+```
+
+webhook 启动流程：
+
+```bash
+cp config.webhook.toml config.toml
+$EDITOR config.toml
+cargo run -- bot-webhook --set https://your-domain.example/webhook
+cargo run -- --lang zh-CN run
 ```
 
 ## 校验
