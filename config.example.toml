@@ -1,0 +1,51 @@
+[app]
+locale = "zh-CN"
+log_dir = "logs"
+
+[oci]
+config_file = "/Users/you/.oci/config"
+profile = "DEFAULT"
+
+[instance.free_tier_defaults]
+assign_public_ip = true
+
+[[instance.free_tier_defaults.shape_candidates]]
+shape = "VM.Standard.A1.Flex"
+ocpus = 4
+memory_in_gbs = 24
+
+[[instance.free_tier_defaults.shape_candidates]]
+shape = "VM.Standard.E2.1.Micro"
+ocpus = 1
+memory_in_gbs = 1
+
+# 如果你想显式指定实例创建参数，取消注释以下配置：
+#
+# [instance.launch]
+# availability_domain = "SiPl:AP-CHUNCHEON-1-AD-1"
+# compartment_id = "ocid1.compartment.oc1..example"
+# subnet_id = "ocid1.subnet.oc1..example"
+# image_id = "ocid1.image.oc1..example"
+# display_name = "oci-cct-app-01"
+# ssh_authorized_keys = "ssh-ed25519 AAAA..."
+# shape = "VM.Standard.A1.Flex"
+# boot_volume_size_in_gbs = 200
+# boot_volume_vpus_per_gb = 120
+# assign_public_ip = true
+# assign_private_dns_record = true
+# assign_ipv6_ip = true
+# ipv6_subnet_cidr = "2603:c024:0017:e000::/64"
+#
+# [instance.launch.shape_config]
+# ocpus = 4
+# memory_in_gbs = 24
+
+[telegram]
+bot_token = "123456:ABCDEF"
+mode = "polling"
+
+# webhook 模式示例：
+# mode = "webhook"
+# webhook_url = "https://your-domain.example/webhook"
+# webhook_listen = "0.0.0.0:8443"
+# webhook_path = "/webhook"
