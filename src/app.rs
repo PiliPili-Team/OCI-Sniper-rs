@@ -6,6 +6,7 @@ use crate::bot::{clear_webhook, configure_webhook, run_bot};
 use crate::cli::{BotWebhookArgs, RunArgs, TestApiArgs};
 use crate::config::{AppConfig, LaunchInstanceConfig, LaunchMode, TelegramMode};
 use crate::i18n::{I18nCatalog, locales_dir};
+use crate::lock::ProcessLock;
 use crate::logging::initialize_logging;
 use crate::oci::{CreateInstanceRequest, LaunchPlanner, OciClient};
 
@@ -66,6 +67,21 @@ impl App {
             return Ok(());
         }
 
+        let runtime_lock = ProcessLock::acquire(&config.app.lock_file).map_err(|_| {
+            anyhow!(i18n.t(
+                &locale,
+                "cli.runtime.lock_busy",
+                &[("path", &config.app.lock_file.display().to_string())]
+            ))
+        })?;
+        println!(
+            "{}",
+            i18n.t(
+                &locale,
+                "cli.runtime.lock_acquired",
+                &[("path", &runtime_lock.path().display().to_string())]
+            )
+        );
         println!("{}", i18n.t(&locale, "cli.runtime.bootstrap", &[]));
         if config.telegram.bot_token.is_some() {
             match config.telegram.mode {
@@ -229,5 +245,19 @@ webhook_url = "https://example.com/hook"
         let updated = AppConfig::load_from_path(&path).unwrap();
         assert_eq!(updated.telegram.mode, TelegramMode::Polling);
         assert!(updated.telegram.webhook_url.is_none());
+    }
+
+    #[test]
+    fn app_section_defaults_include_lock_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        fs::write(&path, "[oci]\nconfig_file = \"/tmp/oci-config\"\n").unwrap();
+
+        let config = AppConfig::load_from_path(&path).unwrap();
+
+        assert_eq!(
+            config.app.lock_file,
+            std::path::PathBuf::from(".oci-sniper.lock")
+        );
     }
 }

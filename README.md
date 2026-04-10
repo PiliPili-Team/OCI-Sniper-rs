@@ -156,6 +156,17 @@ webhook_listen = "127.0.0.1:8443"
 webhook_path = "/webhook"
 ```
 
+### 5. 单实例锁
+
+`run` 命令启动时会尝试获取单实例锁，默认锁文件为：
+
+```toml
+[app]
+lock_file = ".oci-sniper.lock"
+```
+
+如果同一台机器上已有另一个 `oci-sniper` 进程持有该锁，新的 `run` 会直接退出，避免重复写日志和重复拉起 Bot。
+
 ## Bot 命令
 
 - `/start`

@@ -22,6 +22,8 @@
   "cli.bot.starting_polling": "正在以 polling 模式啟動 Telegram Bot。",
   "cli.bot.starting_webhook": "正在以 webhook 模式啟動 Telegram Bot，位址：{url}。",
   "cli.bot.webhook_missing_url": "webhook 模式要求在設定中提供 telegram.webhook_url，或透過 bot-webhook --set 設定。",
+  "cli.runtime.lock_acquired": "已取得執行鎖：{path}",
+  "cli.runtime.lock_busy": "已有其他 oci-sniper 行程正在執行。鎖檔：{path}",
   "bot.command.language.updated": "語言已切換為 {locale}。",
   "bot.command.language.usage": "用法：/language <en|zh-CN|zh-TW>",
   "bot.command.log.empty": "目前沒有可用日誌。",

@@ -22,6 +22,8 @@
   "cli.bot.starting_polling": "Starting Telegram bot in polling mode.",
   "cli.bot.starting_webhook": "Starting Telegram bot in webhook mode at {url}.",
   "cli.bot.webhook_missing_url": "Webhook mode requires telegram.webhook_url in the config or via bot-webhook --set.",
+  "cli.runtime.lock_acquired": "Acquired runtime lock at {path}.",
+  "cli.runtime.lock_busy": "Another oci-sniper process is already running. Lock file: {path}",
   "bot.command.language.updated": "Language updated to {locale}.",
   "bot.command.language.usage": "Usage: /language <en|zh-CN|zh-TW>",
   "bot.command.log.empty": "No logs available at the moment.",

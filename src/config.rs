@@ -33,12 +33,24 @@ impl AppConfig {
     }
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 pub struct AppSection {
     #[serde(default = "default_locale")]
     pub locale: String,
     #[serde(default = "default_log_dir")]
     pub log_dir: PathBuf,
+    #[serde(default = "default_lock_file")]
+    pub lock_file: PathBuf,
+}
+
+impl Default for AppSection {
+    fn default() -> Self {
+        Self {
+            locale: default_locale(),
+            log_dir: default_log_dir(),
+            lock_file: default_lock_file(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
@@ -284,6 +296,10 @@ fn default_locale() -> String {
 
 fn default_log_dir() -> PathBuf {
     PathBuf::from("logs")
+}
+
+fn default_lock_file() -> PathBuf {
+    PathBuf::from(".oci-sniper.lock")
 }
 
 fn default_oci_profile() -> String {

@@ -1,6 +1,7 @@
 [app]
 locale = "zh-CN"
 log_dir = "logs"
+lock_file = ".oci-sniper.lock"
 
 [oci]
 config_file = "/Users/you/.oci/config"
