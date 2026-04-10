@@ -25,6 +25,12 @@ impl AppConfig {
         toml::from_str(&raw)
             .with_context(|| format!("failed to parse config file: {}", path.display()))
     }
+
+    pub fn save_to_path(&self, path: &Path) -> Result<()> {
+        let contents = toml::to_string_pretty(self).context("failed to serialize app config")?;
+        fs::write(path, contents)
+            .with_context(|| format!("failed to write config file: {}", path.display()))
+    }
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, Default)]
