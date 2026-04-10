@@ -1,6 +1,7 @@
 use std::path::Path;
 
 use anyhow::{Context, Result, anyhow};
+use serde::Serialize;
 
 use crate::bot::{clear_webhook, configure_webhook, run_bot};
 use crate::cli::{BotWebhookArgs, RunArgs, TestApiArgs};
@@ -113,29 +114,63 @@ impl App {
         let locale = self.effective_locale(&config);
         initialize_logging(&config.app.log_dir)?;
         let i18n = I18nCatalog::initialize(&locales_dir(), locale.clone())?;
-        println!("{}", i18n.t(&locale, "cli.test_api.phase.credentials", &[]));
-        let credentials = config
-            .oci
-            .resolve_credentials()
-            .map_err(|error| classify_test_api_error(&locale, i18n, &error))?;
+        emit_test_api_phase(
+            args.json,
+            i18n.t(&locale, "cli.test_api.phase.credentials", &[]),
+        );
+        let credentials = match config.oci.resolve_credentials() {
+            Ok(credentials) => credentials,
+            Err(error) => {
+                return handle_test_api_error(&locale, i18n, "credentials", args.json, &error);
+            }
+        };
+        let region = credentials.region.clone();
         let client = OciClient::new(credentials);
-        println!("{}", i18n.t(&locale, "cli.test_api.phase.discovery", &[]));
-        let resolved = resolve_launch_config(&config, &client)
-            .await
-            .map_err(|error| classify_test_api_error(&locale, i18n, &error))?;
+        emit_test_api_phase(
+            args.json,
+            i18n.t(&locale, "cli.test_api.phase.discovery", &[]),
+        );
+        let resolved = match resolve_launch_config(&config, &client).await {
+            Ok(resolved) => resolved,
+            Err(error) => {
+                return handle_test_api_error(&locale, i18n, "discovery", args.json, &error);
+            }
+        };
         let launch_config = &resolved.launch_config;
-        print_launch_diagnostics(&locale, i18n, &resolved);
-        println!("{}", i18n.t(&locale, "cli.test_api.phase.auth", &[]));
+        if !args.json {
+            print_launch_diagnostics(&locale, i18n, &resolved);
+        }
+        emit_test_api_phase(args.json, i18n.t(&locale, "cli.test_api.phase.auth", &[]));
+        let payload = match args.dump_launch_payload {
+            true => match CreateInstanceRequest::from_launch_config(launch_config) {
+                Ok(payload) => Some(payload),
+                Err(error) => {
+                    return handle_test_api_error(&locale, i18n, "discovery", args.json, &error);
+                }
+            },
+            false => None,
+        };
         client
             .test_auth(&launch_config.compartment_id)
             .await
-            .map_err(|error| classify_test_api_error(&locale, i18n, &error))
-            .context("OCI auth test request failed")?;
-        println!("{}", i18n.t(&locale, "cli.test_api.success", &[]));
+            .with_context(|| "OCI auth test request failed".to_string())
+            .or_else(|error| handle_test_api_error(&locale, i18n, "auth", args.json, &error))?;
 
-        if args.dump_launch_payload {
-            let payload = CreateInstanceRequest::from_launch_config(launch_config)?;
-            println!("{}", serde_json::to_string_pretty(&payload)?);
+        if args.json {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&TestApiJsonOutput::success(
+                    &region,
+                    "auth",
+                    &resolved,
+                    payload.as_ref()
+                ))?
+            );
+        } else {
+            println!("{}", i18n.t(&locale, "cli.test_api.success", &[]));
+            if let Some(payload) = payload {
+                println!("{}", serde_json::to_string_pretty(&payload)?);
+            }
         }
 
         Ok(())
@@ -311,6 +346,12 @@ fn print_runtime_summary(locale: &str, i18n: &I18nCatalog, config: &AppConfig) {
     }
 }
 
+fn emit_test_api_phase(json: bool, message: String) {
+    if !json {
+        println!("{message}");
+    }
+}
+
 fn telegram_mode_label(mode: &TelegramMode) -> &'static str {
     match mode {
         TelegramMode::Polling => "polling",
@@ -323,6 +364,25 @@ fn launch_strategy_label(strategy: LaunchStrategy) -> &'static str {
         LaunchStrategy::ExplicitConfig => "explicit",
         LaunchStrategy::FreeTierFallback => "free-tier-fallback",
     }
+}
+
+fn handle_test_api_error(
+    locale: &str,
+    i18n: &I18nCatalog,
+    phase: &'static str,
+    json: bool,
+    error: &anyhow::Error,
+) -> Result<()> {
+    let kind = classify_error_kind(&error.to_string());
+    if json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&TestApiJsonOutput::failure(phase, kind, error))?
+        );
+        return Err(anyhow!(""));
+    }
+
+    Err(classify_test_api_error(locale, i18n, error))
 }
 
 fn classify_test_api_error(
@@ -346,6 +406,78 @@ fn classify_test_api_error(
     anyhow!(i18n.t(locale, key, &[("details", &details)]))
 }
 
+#[derive(Debug, Serialize)]
+struct TestApiJsonOutput<'a> {
+    status: &'a str,
+    phase: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    kind: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    region: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    resolved_launch: Option<TestApiResolvedLaunch<'a>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    launch_payload: Option<&'a CreateInstanceRequest>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    message: Option<String>,
+}
+
+impl<'a> TestApiJsonOutput<'a> {
+    fn success(
+        region: &'a str,
+        phase: &'a str,
+        resolved: &'a ResolvedLaunch,
+        payload: Option<&'a CreateInstanceRequest>,
+    ) -> Self {
+        Self {
+            status: "ok",
+            phase,
+            kind: None,
+            region: Some(region),
+            resolved_launch: Some(TestApiResolvedLaunch::from_resolved(resolved)),
+            launch_payload: payload,
+            message: None,
+        }
+    }
+
+    fn failure(phase: &'a str, kind: TestApiErrorKind, error: &anyhow::Error) -> Self {
+        Self {
+            status: "error",
+            phase,
+            kind: Some(kind.as_str()),
+            region: None,
+            resolved_launch: None,
+            launch_payload: None,
+            message: Some(error.to_string()),
+        }
+    }
+}
+
+#[derive(Debug, Serialize)]
+struct TestApiResolvedLaunch<'a> {
+    strategy: &'a str,
+    availability_domain: &'a str,
+    subnet_id: &'a str,
+    image_id: &'a str,
+    shape: Option<&'a str>,
+    ocpus: Option<u32>,
+    memory_in_gbs: Option<u32>,
+}
+
+impl<'a> TestApiResolvedLaunch<'a> {
+    fn from_resolved(resolved: &'a ResolvedLaunch) -> Self {
+        Self {
+            strategy: launch_strategy_label(resolved.strategy),
+            availability_domain: &resolved.launch_config.availability_domain,
+            subnet_id: &resolved.launch_config.subnet_id,
+            image_id: &resolved.launch_config.image_id,
+            shape: resolved.launch_config.shape.as_deref(),
+            ocpus: resolved.selected_shape_ocpus,
+            memory_in_gbs: resolved.selected_shape_memory_in_gbs,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum TestApiErrorKind {
     Configuration,
@@ -358,6 +490,23 @@ enum TestApiErrorKind {
     Quota,
     Network,
     Unknown,
+}
+
+impl TestApiErrorKind {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Configuration => "configuration",
+            Self::Discovery => "discovery",
+            Self::Auth => "auth",
+            Self::AuthUnauthorized => "auth_unauthorized",
+            Self::AuthForbidden => "auth_forbidden",
+            Self::Throttled => "throttled",
+            Self::Capacity => "capacity",
+            Self::Quota => "quota",
+            Self::Network => "network",
+            Self::Unknown => "unknown",
+        }
+    }
 }
 
 fn classify_error_kind(details: &str) -> TestApiErrorKind {
@@ -429,6 +578,8 @@ fn classify_error_kind(details: &str) -> TestApiErrorKind {
 #[cfg(test)]
 mod error_tests {
     use super::*;
+    use crate::config::{LaunchInstanceConfig, ShapeConfig};
+    use crate::oci::LaunchStrategy;
 
     #[test]
     fn classifies_resource_discovery_errors() {
@@ -469,6 +620,59 @@ mod error_tests {
         assert_eq!(
             classify_error_kind("OCI request failed with status 500: Out of capacity for shape"),
             TestApiErrorKind::Capacity
+        );
+    }
+
+    #[test]
+    fn machine_readable_success_contains_launch_context() {
+        let resolved = ResolvedLaunch {
+            strategy: LaunchStrategy::FreeTierFallback,
+            launch_config: LaunchInstanceConfig {
+                availability_domain: "AD-1".to_string(),
+                compartment_id: "ocid1.compartment.oc1..example".to_string(),
+                subnet_id: "ocid1.subnet.oc1..example".to_string(),
+                image_id: "ocid1.image.oc1..example".to_string(),
+                display_name: "oci-sniper-free-tier".to_string(),
+                ssh_authorized_keys: "ssh-rsa AAA".to_string(),
+                shape: Some("VM.Standard.A1.Flex".to_string()),
+                shape_config: Some(ShapeConfig {
+                    ocpus: 4,
+                    memory_in_gbs: 24,
+                }),
+                boot_volume_size_in_gbs: Some(200),
+                boot_volume_vpus_per_gb: Some(120),
+                assign_public_ip: true,
+                assign_private_dns_record: true,
+                assign_ipv6_ip: false,
+                ipv6_subnet_cidr: None,
+            },
+            selected_shape_ocpus: Some(4),
+            selected_shape_memory_in_gbs: Some(24),
+        };
+
+        let output = TestApiJsonOutput::success("ap-chuncheon-1", "auth", &resolved, None);
+        let json = serde_json::to_value(&output).unwrap();
+
+        assert_eq!(json["status"], "ok");
+        assert_eq!(json["phase"], "auth");
+        assert_eq!(json["region"], "ap-chuncheon-1");
+        assert_eq!(json["resolved_launch"]["strategy"], "free-tier-fallback");
+        assert_eq!(json["resolved_launch"]["ocpus"], 4);
+        assert_eq!(json["resolved_launch"]["memory_in_gbs"], 24);
+    }
+
+    #[test]
+    fn machine_readable_failure_contains_kind_and_message() {
+        let error = anyhow!("OCI request failed with status 403 Forbidden: NotAuthorized");
+        let output = TestApiJsonOutput::failure("auth", TestApiErrorKind::AuthForbidden, &error);
+        let json = serde_json::to_value(&output).unwrap();
+
+        assert_eq!(json["status"], "error");
+        assert_eq!(json["phase"], "auth");
+        assert_eq!(json["kind"], "auth_forbidden");
+        assert_eq!(
+            json["message"],
+            "OCI request failed with status 403 Forbidden: NotAuthorized"
         );
     }
 }

@@ -1,9 +1,18 @@
-use anyhow::Result;
 use oci_sniper_rs::app::App;
 use oci_sniper_rs::cli::{Commands, parse_cli};
 
 #[tokio::main]
-async fn main() -> Result<()> {
+async fn main() {
+    if let Err(error) = run().await {
+        let details = error.to_string();
+        if !details.is_empty() {
+            eprintln!("{error:#}");
+        }
+        std::process::exit(1);
+    }
+}
+
+async fn run() -> anyhow::Result<()> {
     let cli = parse_cli()?;
     let app = App::new(cli.config.clone(), Some(cli.lang.clone()));
 

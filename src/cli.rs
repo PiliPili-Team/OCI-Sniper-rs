@@ -40,6 +40,8 @@ pub struct RunArgs {
 pub struct TestApiArgs {
     #[arg(long)]
     pub dump_launch_payload: bool,
+    #[arg(long)]
+    pub json: bool,
 }
 
 #[derive(Debug, Args)]
@@ -87,6 +89,9 @@ fn localized_command(lang: &str) -> Result<Command> {
             .about(i18n.t(lang, "cli.help.cmd.test_api", &[]))
             .mut_arg("dump_launch_payload", |arg| {
                 arg.help(i18n.t(lang, "cli.help.arg.test_api.dump_launch_payload", &[]))
+            })
+            .mut_arg("json", |arg| {
+                arg.help(i18n.t(lang, "cli.help.arg.test_api.json", &[]))
             })
     });
     command = command.mut_subcommand("bot-webhook", |subcmd| {
