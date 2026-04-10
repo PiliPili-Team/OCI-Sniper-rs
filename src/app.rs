@@ -25,86 +25,147 @@ impl App {
     }
 
     pub async fn run_command(&self, args: RunArgs) -> Result<()> {
-        let config = self.load_config()?;
+        let config = match self.load_config() {
+            Ok(config) => config,
+            Err(error) => return handle_run_error("configuration", args.json, &error),
+        };
         let locale = self.effective_locale(&config);
         initialize_logging(&config.app.log_dir)?;
         let i18n = I18nCatalog::initialize(&locales_dir(), locale.clone())?;
-        let credentials = config.oci.resolve_credentials()?;
+        let credentials = match config.oci.resolve_credentials() {
+            Ok(credentials) => credentials,
+            Err(error) => return handle_run_error("configuration", args.json, &error),
+        };
         let client = OciClient::new(credentials.clone());
-        let resolved = resolve_launch_config(&config, &client).await?;
-        let payload = CreateInstanceRequest::from_launch_config(&resolved.launch_config)?;
+        let resolved = match resolve_launch_config(&config, &client).await {
+            Ok(resolved) => resolved,
+            Err(error) => return handle_run_error("discovery", args.json, &error),
+        };
+        let payload = match CreateInstanceRequest::from_launch_config(&resolved.launch_config) {
+            Ok(payload) => payload,
+            Err(error) => return handle_run_error("discovery", args.json, &error),
+        };
 
-        println!(
-            "{}",
-            i18n.t(
-                &locale,
-                "cli.config.loaded",
-                &[("path", &self.config_path.display().to_string())]
-            )
-        );
-        println!(
-            "{}",
-            i18n.t(
-                &locale,
-                "cli.region.current",
-                &[("region", &credentials.region)]
-            )
-        );
-        println!(
-            "{}",
-            i18n.t(&locale, "cli.shape.current", &[("shape", &payload.shape)])
-        );
-        print_launch_diagnostics(&locale, i18n, &resolved);
-        println!(
-            "{}",
-            i18n.t(
-                &locale,
-                "cli.telegram.mode",
-                &[("mode", telegram_mode_label(&config.telegram.mode))]
-            )
-        );
-        print_runtime_summary(&locale, i18n, &config);
+        if !args.json {
+            println!(
+                "{}",
+                i18n.t(
+                    &locale,
+                    "cli.config.loaded",
+                    &[("path", &self.config_path.display().to_string())]
+                )
+            );
+            println!(
+                "{}",
+                i18n.t(
+                    &locale,
+                    "cli.region.current",
+                    &[("region", &credentials.region)]
+                )
+            );
+            println!(
+                "{}",
+                i18n.t(&locale, "cli.shape.current", &[("shape", &payload.shape)])
+            );
+            print_launch_diagnostics(&locale, i18n, &resolved);
+            println!(
+                "{}",
+                i18n.t(
+                    &locale,
+                    "cli.telegram.mode",
+                    &[("mode", telegram_mode_label(&config.telegram.mode))]
+                )
+            );
+            print_runtime_summary(&locale, i18n, &config);
+        }
 
         if args.dry_run {
-            println!("{}", serde_json::to_string_pretty(&payload)?);
+            if args.json {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&RunJsonOutput::success(
+                        "startup",
+                        &credentials.region,
+                        true,
+                        None,
+                        &resolved,
+                        &payload,
+                        &config
+                    ))?
+                );
+            } else {
+                println!("{}", serde_json::to_string_pretty(&payload)?);
+            }
             return Ok(());
         }
 
-        let runtime_lock = ProcessLock::acquire(&config.app.lock_file).map_err(|_| {
+        let runtime_lock = match ProcessLock::acquire(&config.app.lock_file).map_err(|_| {
             anyhow!(i18n.t(
                 &locale,
                 "cli.runtime.lock_busy",
                 &[("path", &config.app.lock_file.display().to_string())]
             ))
-        })?;
-        println!(
-            "{}",
-            i18n.t(
-                &locale,
-                "cli.runtime.lock_acquired",
-                &[("path", &runtime_lock.path().display().to_string())]
-            )
-        );
-        println!("{}", i18n.t(&locale, "cli.runtime.bootstrap", &[]));
+        }) {
+            Ok(runtime_lock) => runtime_lock,
+            Err(error) => return handle_run_error("lock", args.json, &error),
+        };
+        if args.json {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&RunJsonOutput::success(
+                    "startup",
+                    &credentials.region,
+                    false,
+                    Some(runtime_lock.path().display().to_string()),
+                    &resolved,
+                    &payload,
+                    &config
+                ))?
+            );
+        } else {
+            println!(
+                "{}",
+                i18n.t(
+                    &locale,
+                    "cli.runtime.lock_acquired",
+                    &[("path", &runtime_lock.path().display().to_string())]
+                )
+            );
+            println!("{}", i18n.t(&locale, "cli.runtime.bootstrap", &[]));
+        }
         if config.telegram.bot_token.is_some() {
             match config.telegram.mode {
                 TelegramMode::Polling => {
-                    println!("{}", i18n.t(&locale, "cli.bot.starting_polling", &[]));
-                    run_bot(self.config_path.clone(), locale).await?;
+                    if !args.json {
+                        println!("{}", i18n.t(&locale, "cli.bot.starting_polling", &[]));
+                    }
+                    if let Err(error) = run_bot(self.config_path.clone(), locale).await {
+                        return handle_run_error("runtime", args.json, &error);
+                    }
                 }
                 TelegramMode::Webhook => {
-                    let url = config.telegram.webhook_url.clone().ok_or_else(|| {
-                        anyhow!(i18n.t(&locale, "cli.bot.webhook_missing_url", &[]))
-                    })?;
-                    println!(
-                        "{}",
-                        i18n.t(&locale, "cli.bot.starting_webhook", &[("url", &url)])
-                    );
-                    run_bot(self.config_path.clone(), locale).await?;
+                    let url =
+                        match config.telegram.webhook_url.clone().ok_or_else(|| {
+                            anyhow!(i18n.t(&locale, "cli.bot.webhook_missing_url", &[]))
+                        }) {
+                            Ok(url) => url,
+                            Err(error) => return handle_run_error("runtime", args.json, &error),
+                        };
+                    if !args.json {
+                        println!(
+                            "{}",
+                            i18n.t(&locale, "cli.bot.starting_webhook", &[("url", &url)])
+                        );
+                    }
+                    if let Err(error) = run_bot(self.config_path.clone(), locale).await {
+                        return handle_run_error("runtime", args.json, &error);
+                    }
                 }
             }
         } else {
-            println!("{}", i18n.t(&locale, "cli.bot.disabled", &[]));
+            if !args.json {
+                println!("{}", i18n.t(&locale, "cli.bot.disabled", &[]));
+            }
         }
         Ok(())
     }
@@ -385,6 +446,19 @@ fn handle_test_api_error(
     Err(classify_test_api_error(locale, i18n, error))
 }
 
+fn handle_run_error(phase: &'static str, json: bool, error: &anyhow::Error) -> Result<()> {
+    let kind = classify_run_error_kind(&error.to_string());
+    if json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&RunJsonOutput::failure(phase, kind, error))?
+        );
+        return Err(anyhow!(""));
+    }
+
+    Err(anyhow!(error.to_string()))
+}
+
 fn classify_test_api_error(
     locale: &str,
     i18n: &I18nCatalog,
@@ -454,6 +528,93 @@ impl<'a> TestApiJsonOutput<'a> {
 }
 
 #[derive(Debug, Serialize)]
+struct RunJsonOutput<'a> {
+    status: &'a str,
+    phase: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    kind: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    region: Option<&'a str>,
+    dry_run: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    lock_file: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    resolved_launch: Option<TestApiResolvedLaunch<'a>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    launch_payload: Option<&'a CreateInstanceRequest>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    runtime: Option<RunRuntimeSummary<'a>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    message: Option<String>,
+}
+
+impl<'a> RunJsonOutput<'a> {
+    fn success(
+        phase: &'a str,
+        region: &'a str,
+        dry_run: bool,
+        lock_file: Option<String>,
+        resolved: &'a ResolvedLaunch,
+        payload: &'a CreateInstanceRequest,
+        config: &'a AppConfig,
+    ) -> Self {
+        Self {
+            status: "ok",
+            phase,
+            kind: None,
+            region: Some(region),
+            dry_run,
+            lock_file,
+            resolved_launch: Some(TestApiResolvedLaunch::from_resolved(resolved)),
+            launch_payload: Some(payload),
+            runtime: Some(RunRuntimeSummary::from_config(config)),
+            message: None,
+        }
+    }
+
+    fn failure(phase: &'a str, kind: RunErrorKind, error: &anyhow::Error) -> Self {
+        Self {
+            status: "error",
+            phase,
+            kind: Some(kind.as_str()),
+            region: None,
+            dry_run: false,
+            lock_file: None,
+            resolved_launch: None,
+            launch_payload: None,
+            runtime: None,
+            message: Some(error.to_string()),
+        }
+    }
+}
+
+#[derive(Debug, Serialize)]
+struct RunRuntimeSummary<'a> {
+    log_dir: String,
+    bot_mode: &'a str,
+    bot_enabled: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    webhook_url: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    webhook_listen: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    webhook_path: Option<&'a str>,
+}
+
+impl<'a> RunRuntimeSummary<'a> {
+    fn from_config(config: &'a AppConfig) -> Self {
+        Self {
+            log_dir: config.app.log_dir.display().to_string(),
+            bot_mode: telegram_mode_label(&config.telegram.mode),
+            bot_enabled: config.telegram.bot_token.is_some(),
+            webhook_url: config.telegram.webhook_url.as_deref(),
+            webhook_listen: config.telegram.webhook_listen.as_deref(),
+            webhook_path: config.telegram.webhook_path.as_deref(),
+        }
+    }
+}
+
+#[derive(Debug, Serialize)]
 struct TestApiResolvedLaunch<'a> {
     strategy: &'a str,
     availability_domain: &'a str,
@@ -504,6 +665,27 @@ impl TestApiErrorKind {
             Self::Capacity => "capacity",
             Self::Quota => "quota",
             Self::Network => "network",
+            Self::Unknown => "unknown",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RunErrorKind {
+    Configuration,
+    Discovery,
+    LockBusy,
+    Runtime,
+    Unknown,
+}
+
+impl RunErrorKind {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Configuration => "configuration",
+            Self::Discovery => "discovery",
+            Self::LockBusy => "lock_busy",
+            Self::Runtime => "runtime",
             Self::Unknown => "unknown",
         }
     }
@@ -573,6 +755,41 @@ fn classify_error_kind(details: &str) -> TestApiErrorKind {
         return TestApiErrorKind::Network;
     }
     TestApiErrorKind::Unknown
+}
+
+fn classify_run_error_kind(details: &str) -> RunErrorKind {
+    let lower = details.to_ascii_lowercase();
+    if lower.contains("failed to read config file")
+        || lower.contains("failed to parse config file")
+        || lower.contains("failed to read oci config file")
+        || lower.contains("oci profile")
+        || lower.contains("missing 'user'")
+        || lower.contains("missing 'fingerprint'")
+        || lower.contains("missing 'tenancy'")
+        || lower.contains("missing 'region'")
+        || lower.contains("missing 'key_file'")
+    {
+        return RunErrorKind::Configuration;
+    }
+    if lower.contains("no oci availability domain found")
+        || lower.contains("no available subnet found")
+        || lower.contains("no oracle linux image found")
+        || lower.contains("no free-tier shape candidates configured")
+        || lower.contains("failed to resolve default ssh public key")
+    {
+        return RunErrorKind::Discovery;
+    }
+    if lower.contains("already running") || lower.contains("lock file") {
+        return RunErrorKind::LockBusy;
+    }
+    if lower.contains("webhook mode requires")
+        || lower.contains("telegram")
+        || lower.contains("failed to initialize")
+        || lower.contains("failed to create")
+    {
+        return RunErrorKind::Runtime;
+    }
+    RunErrorKind::Unknown
 }
 
 #[cfg(test)]
@@ -673,6 +890,89 @@ mod error_tests {
         assert_eq!(
             json["message"],
             "OCI request failed with status 403 Forbidden: NotAuthorized"
+        );
+    }
+
+    #[test]
+    fn run_machine_readable_success_contains_runtime_summary() {
+        let resolved = ResolvedLaunch {
+            strategy: LaunchStrategy::ExplicitConfig,
+            launch_config: LaunchInstanceConfig {
+                availability_domain: "AD-1".to_string(),
+                compartment_id: "ocid1.compartment.oc1..example".to_string(),
+                subnet_id: "ocid1.subnet.oc1..example".to_string(),
+                image_id: "ocid1.image.oc1..example".to_string(),
+                display_name: "oci-sniper".to_string(),
+                ssh_authorized_keys: "ssh-ed25519 AAA".to_string(),
+                shape: Some("VM.Standard.A1.Flex".to_string()),
+                shape_config: Some(ShapeConfig {
+                    ocpus: 4,
+                    memory_in_gbs: 24,
+                }),
+                boot_volume_size_in_gbs: Some(200),
+                boot_volume_vpus_per_gb: Some(120),
+                assign_public_ip: true,
+                assign_private_dns_record: true,
+                assign_ipv6_ip: false,
+                ipv6_subnet_cidr: None,
+            },
+            selected_shape_ocpus: Some(4),
+            selected_shape_memory_in_gbs: Some(24),
+        };
+        let payload = CreateInstanceRequest::from_launch_config(&resolved.launch_config).unwrap();
+        let config = AppConfig {
+            app: crate::config::AppSection {
+                locale: "en".to_string(),
+                log_dir: std::path::PathBuf::from("logs"),
+                lock_file: std::path::PathBuf::from(".oci-sniper.lock"),
+            },
+            oci: crate::config::OciProfileConfig {
+                config_file: Some(std::path::PathBuf::from("/tmp/oci-config")),
+                profile: "DEFAULT".to_string(),
+            },
+            instance: crate::config::InstanceConfig::default(),
+            telegram: crate::config::TelegramConfig {
+                bot_token: Some("token".to_string()),
+                mode: TelegramMode::Webhook,
+                webhook_url: Some("https://example.com/webhook".to_string()),
+                webhook_listen: Some("127.0.0.1:8443".to_string()),
+                webhook_path: Some("/webhook".to_string()),
+                language_preferences: std::collections::HashMap::new(),
+            },
+        };
+
+        let output = RunJsonOutput::success(
+            "startup",
+            "ap-chuncheon-1",
+            false,
+            Some(".oci-sniper.lock".to_string()),
+            &resolved,
+            &payload,
+            &config,
+        );
+        let json = serde_json::to_value(&output).unwrap();
+
+        assert_eq!(json["status"], "ok");
+        assert_eq!(json["phase"], "startup");
+        assert_eq!(json["dry_run"], false);
+        assert_eq!(json["lock_file"], ".oci-sniper.lock");
+        assert_eq!(json["runtime"]["bot_mode"], "webhook");
+        assert_eq!(json["runtime"]["bot_enabled"], true);
+        assert_eq!(json["launch_payload"]["shape"], "VM.Standard.A1.Flex");
+    }
+
+    #[test]
+    fn run_machine_readable_failure_contains_lock_kind() {
+        let error = anyhow!("Another oci-sniper process is already running. Lock file: /tmp/.oci");
+        let output = RunJsonOutput::failure("lock", RunErrorKind::LockBusy, &error);
+        let json = serde_json::to_value(&output).unwrap();
+
+        assert_eq!(json["status"], "error");
+        assert_eq!(json["phase"], "lock");
+        assert_eq!(json["kind"], "lock_busy");
+        assert_eq!(
+            json["message"],
+            "Another oci-sniper process is already running. Lock file: /tmp/.oci"
         );
     }
 }

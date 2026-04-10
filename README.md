@@ -17,6 +17,7 @@ CLI 支持通过 `--lang` 或 `-l` 切换语言，并输出彩色帮助。
 ```bash
 cargo run -- --lang en --help
 cargo run -- --lang zh-CN run --dry-run
+cargo run -- --lang en run --json --dry-run
 cargo run -- -l zh-TW test-api --dump-launch-payload
 cargo run -- --lang en test-api --json
 ```
@@ -25,6 +26,7 @@ cargo run -- --lang en test-api --json
 
 - `oci-sniper run`
   读取配置并启动运行时；如果配置了 Telegram token，会按 `telegram.mode` 启动 polling 或 webhook Bot。
+  支持 `--json` 输出机器可读启动摘要；配合 `--dry-run` 使用时不会进入长期运行态。
 - `oci-sniper test-api`
   只执行一次 OCI 已签名 API 测试，不启动 Bot。支持 `--json` 输出机器可读结果，支持 `--dump-launch-payload` 一并输出最终实例创建载荷。
 - `oci-sniper bot-webhook --set <URL>`
@@ -75,6 +77,51 @@ cargo run -- --lang en test-api --json
 ```bash
 cargo run -- test-api --json | jq -r '.status, .kind // "ok"'
 cargo run -- test-api --json --dump-launch-payload | jq '.launch_payload.shape'
+```
+
+### `run --json`
+
+适合 systemd、shell wrapper 或其他需要在进入常驻运行前先拿到启动摘要的场景。
+
+```bash
+cargo run -- --lang en run --json --dry-run
+```
+
+```json
+{
+  "status": "ok",
+  "phase": "startup",
+  "region": "ap-chuncheon-1",
+  "dry_run": true,
+  "resolved_launch": {
+    "strategy": "free-tier-fallback",
+    "availability_domain": "SiPl:AP-CHUNCHEON-1-AD-1",
+    "subnet_id": "ocid1.subnet.oc1..example",
+    "image_id": "ocid1.image.oc1..example",
+    "shape": "VM.Standard.A1.Flex",
+    "ocpus": 4,
+    "memory_in_gbs": 24
+  },
+  "launch_payload": {
+    "shape": "VM.Standard.A1.Flex"
+  },
+  "runtime": {
+    "log_dir": "logs",
+    "bot_mode": "polling",
+    "bot_enabled": false
+  }
+}
+```
+
+如果 `run --json` 在启动前失败，会输出类似下面的结构：
+
+```json
+{
+  "status": "error",
+  "phase": "lock",
+  "kind": "lock_busy",
+  "message": "Another oci-sniper process is already running. Lock file: .oci-sniper.lock"
+}
 ```
 
 ## 配置

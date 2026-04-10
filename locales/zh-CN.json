@@ -7,6 +7,7 @@
   "cli.help.cmd.test_api": "执行一次 OCI 签名 API 测试请求。",
   "cli.help.cmd.bot_webhook": "设置或清除 Telegram Bot Webhook。",
   "cli.help.arg.run.dry_run": "仅解析配置并输出实例创建载荷，不启动运行时。",
+  "cli.help.arg.run.json": "以机器可读 JSON 输出启动摘要或失败结果。",
   "cli.help.arg.test_api.dump_launch_payload": "鉴权测试成功后，输出解析后的 OCI 实例创建载荷。",
   "cli.help.arg.test_api.json": "以机器可读 JSON 输出成功或失败结果。",
   "cli.help.arg.bot_webhook.set": "设置 Telegram Webhook URL，并将运行模式切换为 webhook。",

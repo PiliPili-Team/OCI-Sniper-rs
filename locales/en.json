@@ -7,6 +7,7 @@
   "cli.help.cmd.test_api": "Run a single OCI signed API test request.",
   "cli.help.cmd.bot_webhook": "Set or clear the Telegram bot webhook.",
   "cli.help.arg.run.dry_run": "Resolve config and print the launch payload without starting the runtime.",
+  "cli.help.arg.run.json": "Print a machine-readable JSON startup summary or failure.",
   "cli.help.arg.test_api.dump_launch_payload": "Print the resolved OCI launch payload after the auth test succeeds.",
   "cli.help.arg.test_api.json": "Print machine-readable JSON output for success or failure.",
   "cli.help.arg.bot_webhook.set": "Set the Telegram webhook URL and switch runtime mode to webhook.",

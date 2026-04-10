@@ -34,6 +34,8 @@ pub enum Commands {
 pub struct RunArgs {
     #[arg(long)]
     pub dry_run: bool,
+    #[arg(long)]
+    pub json: bool,
 }
 
 #[derive(Debug, Args)]
@@ -82,6 +84,9 @@ fn localized_command(lang: &str) -> Result<Command> {
             .about(i18n.t(lang, "cli.help.cmd.run", &[]))
             .mut_arg("dry_run", |arg| {
                 arg.help(i18n.t(lang, "cli.help.arg.run.dry_run", &[]))
+            })
+            .mut_arg("json", |arg| {
+                arg.help(i18n.t(lang, "cli.help.arg.run.json", &[]))
             })
     });
     command = command.mut_subcommand("test-api", |subcmd| {
