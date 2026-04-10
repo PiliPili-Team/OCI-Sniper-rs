@@ -1,6 +1,7 @@
 use anyhow::{Context, Result};
 use teloxide::prelude::*;
 use teloxide::types::{InputFile, ParseMode};
+use teloxide::update_listeners;
 use url::Url;
 
 use crate::config::AppConfig;
@@ -9,18 +10,16 @@ use crate::logging::{latest_log_tail, zip_logs};
 
 const TELEGRAM_ARCHIVE_LIMIT: u64 = 50 * 1024 * 1024;
 
-pub async fn run_bot(config_path: std::path::PathBuf) -> Result<()> {
+pub async fn run_bot(config_path: std::path::PathBuf, default_locale: String) -> Result<()> {
     let config = AppConfig::load_from_path(&config_path)?;
     let token = config
         .telegram
         .bot_token
         .clone()
         .context("telegram.bot_token is required to run the bot")?;
-    let default_locale = config.app.locale.clone();
     let log_dir = config.app.log_dir.clone();
     let bot = Bot::new(token);
-
-    teloxide::repl(bot, move |bot: Bot, message: Message| {
+    let handler = move |bot: Bot, message: Message| {
         let config_path = config_path.clone();
         let default_locale = default_locale.clone();
         let log_dir = log_dir.clone();
@@ -32,8 +31,17 @@ pub async fn run_bot(config_path: std::path::PathBuf) -> Result<()> {
             }
             respond(())
         }
-    })
-    .await;
+    };
+
+    match config.telegram.mode {
+        crate::config::TelegramMode::Polling => {
+            teloxide::repl(bot, handler).await;
+        }
+        crate::config::TelegramMode::Webhook => {
+            let listener = webhook_listener(&config, bot.clone()).await?;
+            teloxide::repl_with_listener(bot, handler, listener).await;
+        }
+    }
 
     Ok(())
 }
@@ -65,6 +73,34 @@ pub async fn clear_webhook(config: &AppConfig) -> Result<()> {
         .await
         .context("failed to clear Telegram webhook")?;
     Ok(())
+}
+
+async fn webhook_listener(
+    config: &AppConfig,
+    bot: Bot,
+) -> Result<impl update_listeners::UpdateListener<Err = std::convert::Infallible>> {
+    let webhook_url = config
+        .telegram
+        .webhook_url
+        .clone()
+        .context("telegram.webhook_url is required for webhook mode")?;
+    let url = Url::parse(&webhook_url).context("invalid telegram.webhook_url")?;
+    let listen_addr = config
+        .telegram
+        .webhook_listen
+        .clone()
+        .unwrap_or_else(|| format!("0.0.0.0:{}", url.port().unwrap_or(8443)));
+    let address = listen_addr
+        .parse()
+        .with_context(|| format!("invalid telegram.webhook_listen value: {listen_addr}"))?;
+    let mut options = update_listeners::webhooks::Options::new(address, url);
+    if let Some(path) = &config.telegram.webhook_path {
+        options = options.path(path.clone());
+    }
+
+    update_listeners::webhooks::axum(bot, options)
+        .await
+        .context("failed to initialize Telegram webhook listener")
 }
 
 async fn handle_message(

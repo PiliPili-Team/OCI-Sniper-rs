@@ -11,17 +11,22 @@ use crate::oci::{CreateInstanceRequest, LaunchPlanner, OciClient};
 
 pub struct App {
     pub config_path: std::path::PathBuf,
+    pub cli_lang: Option<String>,
 }
 
 impl App {
-    pub fn new(config_path: std::path::PathBuf) -> Self {
-        Self { config_path }
+    pub fn new(config_path: std::path::PathBuf, cli_lang: Option<String>) -> Self {
+        Self {
+            config_path,
+            cli_lang,
+        }
     }
 
     pub async fn run_command(&self, args: RunArgs) -> Result<()> {
         let config = self.load_config()?;
+        let locale = self.effective_locale(&config);
         initialize_logging(&config.app.log_dir)?;
-        let i18n = I18nCatalog::initialize(&locales_dir(), config.app.locale.clone())?;
+        let i18n = I18nCatalog::initialize(&locales_dir(), locale.clone())?;
         let credentials = config.oci.resolve_credentials()?;
         let client = OciClient::new(credentials.clone());
         let launch_config = resolve_launch_config(&config, &client).await?;
@@ -30,7 +35,7 @@ impl App {
         println!(
             "{}",
             i18n.t(
-                &config.app.locale,
+                &locale,
                 "cli.config.loaded",
                 &[("path", &self.config_path.display().to_string())]
             )
@@ -38,23 +43,19 @@ impl App {
         println!(
             "{}",
             i18n.t(
-                &config.app.locale,
+                &locale,
                 "cli.region.current",
                 &[("region", &credentials.region)]
             )
         );
         println!(
             "{}",
-            i18n.t(
-                &config.app.locale,
-                "cli.shape.current",
-                &[("shape", &payload.shape)]
-            )
+            i18n.t(&locale, "cli.shape.current", &[("shape", &payload.shape)])
         );
         println!(
             "{}",
             i18n.t(
-                &config.app.locale,
+                &locale,
                 "cli.telegram.mode",
                 &[("mode", telegram_mode_label(&config.telegram.mode))]
             )
@@ -65,22 +66,35 @@ impl App {
             return Ok(());
         }
 
-        println!(
-            "{}",
-            i18n.t(&config.app.locale, "cli.runtime.bootstrap", &[])
-        );
+        println!("{}", i18n.t(&locale, "cli.runtime.bootstrap", &[]));
         if config.telegram.bot_token.is_some() {
-            run_bot(self.config_path.clone()).await?;
+            match config.telegram.mode {
+                TelegramMode::Polling => {
+                    println!("{}", i18n.t(&locale, "cli.bot.starting_polling", &[]));
+                    run_bot(self.config_path.clone(), locale).await?;
+                }
+                TelegramMode::Webhook => {
+                    let url = config.telegram.webhook_url.clone().ok_or_else(|| {
+                        anyhow!(i18n.t(&locale, "cli.bot.webhook_missing_url", &[]))
+                    })?;
+                    println!(
+                        "{}",
+                        i18n.t(&locale, "cli.bot.starting_webhook", &[("url", &url)])
+                    );
+                    run_bot(self.config_path.clone(), locale).await?;
+                }
+            }
         } else {
-            println!("telegram bot token not configured; run mode is limited to local bootstrap");
+            println!("{}", i18n.t(&locale, "cli.bot.disabled", &[]));
         }
         Ok(())
     }
 
     pub async fn test_api_command(&self, args: TestApiArgs) -> Result<()> {
         let config = self.load_config()?;
+        let locale = self.effective_locale(&config);
         initialize_logging(&config.app.log_dir)?;
-        let i18n = I18nCatalog::initialize(&locales_dir(), config.app.locale.clone())?;
+        let i18n = I18nCatalog::initialize(&locales_dir(), locale.clone())?;
         let credentials = config.oci.resolve_credentials()?;
         let client = OciClient::new(credentials);
         let launch_config = resolve_launch_config(&config, &client).await?;
@@ -88,10 +102,7 @@ impl App {
             .test_auth(&launch_config.compartment_id)
             .await
             .context("OCI auth test request failed")?;
-        println!(
-            "{}",
-            i18n.t(&config.app.locale, "cli.test_api.success", &[])
-        );
+        println!("{}", i18n.t(&locale, "cli.test_api.success", &[]));
 
         if args.dump_launch_payload {
             let payload = CreateInstanceRequest::from_launch_config(&launch_config)?;
@@ -103,8 +114,9 @@ impl App {
 
     pub async fn bot_webhook_command(&self, args: BotWebhookArgs) -> Result<()> {
         let mut config = self.load_config()?;
+        let locale = self.effective_locale(&config);
         initialize_logging(&config.app.log_dir)?;
-        let i18n = I18nCatalog::initialize(&locales_dir(), config.app.locale.clone())?;
+        let i18n = I18nCatalog::initialize(&locales_dir(), locale.clone())?;
         match (args.set, args.clear) {
             (Some(url), false) => {
                 config.telegram.mode = TelegramMode::Webhook;
@@ -115,7 +127,7 @@ impl App {
                 config.save_to_path(&self.config_path)?;
                 println!(
                     "{}",
-                    i18n.t(&config.app.locale, "cli.bot.webhook_set", &[("url", &url)])
+                    i18n.t(&locale, "cli.bot.webhook_set", &[("url", &url)])
                 );
             }
             (None, true) => {
@@ -125,10 +137,7 @@ impl App {
                     clear_webhook(&config).await?;
                 }
                 config.save_to_path(&self.config_path)?;
-                println!(
-                    "{}",
-                    i18n.t(&config.app.locale, "cli.bot.webhook_cleared", &[])
-                );
+                println!("{}", i18n.t(&locale, "cli.bot.webhook_cleared", &[]));
             }
             _ => return Err(anyhow!("either --set <URL> or --clear must be specified")),
         }
@@ -137,6 +146,12 @@ impl App {
 
     fn load_config(&self) -> Result<AppConfig> {
         AppConfig::load_from_path(Path::new(&self.config_path))
+    }
+
+    fn effective_locale(&self, config: &AppConfig) -> String {
+        self.cli_lang
+            .clone()
+            .unwrap_or_else(|| config.app.locale.clone())
     }
 }
 
@@ -201,7 +216,7 @@ webhook_url = "https://example.com/hook"
         )
         .unwrap();
 
-        let app = App::new(path.clone());
+        let app = App::new(path.clone(), None);
         std::env::set_current_dir(dir.path()).unwrap();
         tokio::runtime::Runtime::new()
             .unwrap()

@@ -1,12 +1,11 @@
 use anyhow::Result;
-use clap::Parser;
 use oci_sniper_rs::app::App;
-use oci_sniper_rs::cli::{Cli, Commands};
+use oci_sniper_rs::cli::{Commands, parse_cli};
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let cli = Cli::parse();
-    let app = App::new(cli.config.clone());
+    let cli = parse_cli()?;
+    let app = App::new(cli.config.clone(), Some(cli.lang.clone()));
 
     match cli.command {
         Commands::Run(args) => app.run_command(args).await?,

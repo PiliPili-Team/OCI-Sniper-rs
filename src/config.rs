@@ -138,6 +138,10 @@ pub struct TelegramConfig {
     #[serde(default)]
     pub webhook_url: Option<String>,
     #[serde(default)]
+    pub webhook_listen: Option<String>,
+    #[serde(default)]
+    pub webhook_path: Option<String>,
+    #[serde(default)]
     pub language_preferences: HashMap<i64, String>,
 }
 
