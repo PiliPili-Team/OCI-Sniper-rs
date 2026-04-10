@@ -18,6 +18,7 @@ CLI 支持通过 `--lang` 或 `-l` 切换语言，并输出彩色帮助。
 cargo run -- --lang en --help
 cargo run -- --lang zh-CN run --dry-run
 cargo run -- -l zh-TW test-api --dump-launch-payload
+cargo run -- --lang en test-api --json
 ```
 
 ### 命令
@@ -25,11 +26,56 @@ cargo run -- -l zh-TW test-api --dump-launch-payload
 - `oci-sniper run`
   读取配置并启动运行时；如果配置了 Telegram token，会按 `telegram.mode` 启动 polling 或 webhook Bot。
 - `oci-sniper test-api`
-  只执行一次 OCI 已签名 API 测试，不启动 Bot。
+  只执行一次 OCI 已签名 API 测试，不启动 Bot。支持 `--json` 输出机器可读结果，支持 `--dump-launch-payload` 一并输出最终实例创建载荷。
 - `oci-sniper bot-webhook --set <URL>`
   更新本地配置，并在有 token 时同步调用 Telegram `setWebhook`。
 - `oci-sniper bot-webhook --clear`
   清理本地 webhook 配置，并在有 token 时同步调用 Telegram `deleteWebhook`。
+
+### `test-api --json`
+
+适合 CI、脚本和 shell 管道场景。
+
+成功示例：
+
+```bash
+cargo run -- --lang en test-api --json
+```
+
+```json
+{
+  "status": "ok",
+  "phase": "auth",
+  "region": "ap-chuncheon-1",
+  "resolved_launch": {
+    "strategy": "free-tier-fallback",
+    "availability_domain": "SiPl:AP-CHUNCHEON-1-AD-1",
+    "subnet_id": "ocid1.subnet.oc1..example",
+    "image_id": "ocid1.image.oc1..example",
+    "shape": "VM.Standard.A1.Flex",
+    "ocpus": 4,
+    "memory_in_gbs": 24
+  }
+}
+```
+
+失败示例：
+
+```json
+{
+  "status": "error",
+  "phase": "auth",
+  "kind": "auth_forbidden",
+  "message": "OCI auth test request failed: OCI request failed with status 403 Forbidden: NotAuthorized"
+}
+```
+
+配合 `jq` 使用：
+
+```bash
+cargo run -- test-api --json | jq -r '.status, .kind // "ok"'
+cargo run -- test-api --json --dump-launch-payload | jq '.launch_payload.shape'
+```
 
 ## 配置
 
