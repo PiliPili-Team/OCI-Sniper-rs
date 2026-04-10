@@ -8,6 +8,12 @@
   "cli.bot.webhook_set": "Webhook set to {url}",
   "cli.bot.webhook_cleared": "Webhook cleared; fallback to polling.",
   "bot.command.language.updated": "Language updated to {locale}.",
+  "bot.command.language.usage": "Usage: /language <en|zh-CN|zh-TW>",
   "bot.command.log.empty": "No logs available at the moment.",
-  "bot.command.start.success": "Sniper started successfully."
+  "bot.command.logs.archive_too_large": "The log archive exceeds Telegram's upload limit. Try /logs 1 or another smaller number.",
+  "bot.command.logs.sent": "Sent {count} log files as archive.",
+  "bot.command.logs.latest_empty": "The latest log file is empty.",
+  "bot.command.start.success": "Sniper started successfully.",
+  "bot.command.help": "Available commands: /start, /language <locale>, /logs [n], /log_latest_tail [n]",
+  "bot.command.unknown": "Unknown command."
 }

@@ -8,6 +8,12 @@
   "cli.bot.webhook_set": "Webhook 已設定為 {url}",
   "cli.bot.webhook_cleared": "Webhook 已清除，已回退至 polling 模式。",
   "bot.command.language.updated": "語言已切換為 {locale}。",
+  "bot.command.language.usage": "用法：/language <en|zh-CN|zh-TW>",
   "bot.command.log.empty": "目前沒有可用日誌。",
-  "bot.command.start.success": "Sniper 已成功啟動。"
+  "bot.command.logs.archive_too_large": "日誌壓縮檔超過 Telegram 上傳限制，請嘗試 /logs 1 或更小的數量。",
+  "bot.command.logs.sent": "已傳送包含 {count} 個日誌檔案的壓縮包。",
+  "bot.command.logs.latest_empty": "最新日誌檔案為空。",
+  "bot.command.start.success": "Sniper 已成功啟動。",
+  "bot.command.help": "可用指令：/start、/language <locale>、/logs [n]、/log_latest_tail [n]",
+  "bot.command.unknown": "未知指令。"
 }

@@ -2,6 +2,7 @@ use std::path::Path;
 
 use anyhow::{Context, Result, anyhow};
 
+use crate::bot::{clear_webhook, configure_webhook, run_bot};
 use crate::cli::{BotWebhookArgs, RunArgs, TestApiArgs};
 use crate::config::{AppConfig, LaunchInstanceConfig, LaunchMode, TelegramMode};
 use crate::i18n::{I18nCatalog, locales_dir};
@@ -68,6 +69,11 @@ impl App {
             "{}",
             i18n.t(&config.app.locale, "cli.runtime.bootstrap", &[])
         );
+        if config.telegram.bot_token.is_some() {
+            run_bot(self.config_path.clone()).await?;
+        } else {
+            println!("telegram bot token not configured; run mode is limited to local bootstrap");
+        }
         Ok(())
     }
 
@@ -103,6 +109,9 @@ impl App {
             (Some(url), false) => {
                 config.telegram.mode = TelegramMode::Webhook;
                 config.telegram.webhook_url = Some(url.clone());
+                if config.telegram.bot_token.is_some() {
+                    configure_webhook(&config, &url).await?;
+                }
                 config.save_to_path(&self.config_path)?;
                 println!(
                     "{}",
@@ -112,6 +121,9 @@ impl App {
             (None, true) => {
                 config.telegram.mode = TelegramMode::Polling;
                 config.telegram.webhook_url = None;
+                if config.telegram.bot_token.is_some() {
+                    clear_webhook(&config).await?;
+                }
                 config.save_to_path(&self.config_path)?;
                 println!(
                     "{}",
