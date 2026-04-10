@@ -62,6 +62,7 @@ impl App {
                 &[("mode", telegram_mode_label(&config.telegram.mode))]
             )
         );
+        print_runtime_summary(&locale, i18n, &config);
 
         if args.dry_run {
             println!("{}", serde_json::to_string_pretty(&payload)?);
@@ -246,6 +247,58 @@ fn print_launch_diagnostics(locale: &str, i18n: &I18nCatalog, resolved: &Resolve
                 &[("ocpus", &ocpus), ("memory_in_gbs", &memory)]
             )
         );
+    }
+}
+
+fn print_runtime_summary(locale: &str, i18n: &I18nCatalog, config: &AppConfig) {
+    println!(
+        "{}",
+        i18n.t(
+            locale,
+            "cli.runtime.log_dir",
+            &[("path", &config.app.log_dir.display().to_string())]
+        )
+    );
+    println!(
+        "{}",
+        i18n.t(
+            locale,
+            "cli.runtime.lock_file",
+            &[("path", &config.app.lock_file.display().to_string())]
+        )
+    );
+    println!(
+        "{}",
+        i18n.t(
+            locale,
+            "cli.runtime.bot_mode",
+            &[("mode", telegram_mode_label(&config.telegram.mode))]
+        )
+    );
+
+    if let TelegramMode::Webhook = config.telegram.mode {
+        if let Some(url) = &config.telegram.webhook_url {
+            println!(
+                "{}",
+                i18n.t(locale, "cli.runtime.webhook_url", &[("url", url)])
+            );
+        }
+        if let Some(address) = &config.telegram.webhook_listen {
+            println!(
+                "{}",
+                i18n.t(
+                    locale,
+                    "cli.runtime.webhook_listen",
+                    &[("address", address)]
+                )
+            );
+        }
+        if let Some(path) = &config.telegram.webhook_path {
+            println!(
+                "{}",
+                i18n.t(locale, "cli.runtime.webhook_path", &[("path", path)])
+            );
+        }
     }
 }
 
