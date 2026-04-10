@@ -335,6 +335,11 @@ fn classify_test_api_error(
         TestApiErrorKind::Configuration => "cli.test_api.error.configuration",
         TestApiErrorKind::Discovery => "cli.test_api.error.discovery",
         TestApiErrorKind::Auth => "cli.test_api.error.auth",
+        TestApiErrorKind::AuthUnauthorized => "cli.test_api.error.auth_unauthorized",
+        TestApiErrorKind::AuthForbidden => "cli.test_api.error.auth_forbidden",
+        TestApiErrorKind::Throttled => "cli.test_api.error.throttled",
+        TestApiErrorKind::Capacity => "cli.test_api.error.capacity",
+        TestApiErrorKind::Quota => "cli.test_api.error.quota",
         TestApiErrorKind::Network => "cli.test_api.error.network",
         TestApiErrorKind::Unknown => "cli.test_api.error.unknown",
     };
@@ -346,6 +351,11 @@ enum TestApiErrorKind {
     Configuration,
     Discovery,
     Auth,
+    AuthUnauthorized,
+    AuthForbidden,
+    Throttled,
+    Capacity,
+    Quota,
     Network,
     Unknown,
 }
@@ -375,6 +385,36 @@ fn classify_error_kind(details: &str) -> TestApiErrorKind {
     if lower.contains("oci request failed with status")
         || lower.contains("oci auth test request failed")
     {
+        if lower.contains("status 401") || lower.contains("notauthenticated") {
+            return TestApiErrorKind::AuthUnauthorized;
+        }
+        if lower.contains("status 403")
+            || lower.contains("notauthorized")
+            || lower.contains("forbidden")
+        {
+            return TestApiErrorKind::AuthForbidden;
+        }
+        if lower.contains("status 429")
+            || lower.contains("toomanyrequests")
+            || lower.contains("rate limit")
+            || lower.contains("throttl")
+        {
+            return TestApiErrorKind::Throttled;
+        }
+        if lower.contains("out of capacity")
+            || lower.contains("capacity")
+            || lower.contains("host capacity")
+            || lower.contains("no capacity")
+        {
+            return TestApiErrorKind::Capacity;
+        }
+        if lower.contains("limitexceeded")
+            || lower.contains("quota")
+            || lower.contains("quota exceeded")
+            || lower.contains("exceeded your service limit")
+        {
+            return TestApiErrorKind::Quota;
+        }
         return TestApiErrorKind::Auth;
     }
     if lower.contains("failed to execute oci get request")
@@ -403,6 +443,32 @@ mod error_tests {
         assert_eq!(
             classify_error_kind("failed to execute OCI GET request"),
             TestApiErrorKind::Network
+        );
+    }
+
+    #[test]
+    fn classifies_unauthorized_auth_errors() {
+        assert_eq!(
+            classify_error_kind(
+                "OCI request failed with status 401 Unauthorized: NotAuthenticated"
+            ),
+            TestApiErrorKind::AuthUnauthorized
+        );
+    }
+
+    #[test]
+    fn classifies_throttled_errors() {
+        assert_eq!(
+            classify_error_kind("OCI request failed with status 429 TooManyRequests"),
+            TestApiErrorKind::Throttled
+        );
+    }
+
+    #[test]
+    fn classifies_capacity_errors() {
+        assert_eq!(
+            classify_error_kind("OCI request failed with status 500: Out of capacity for shape"),
+            TestApiErrorKind::Capacity
         );
     }
 }
