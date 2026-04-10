@@ -5,6 +5,7 @@ use anyhow::{Context, Result, anyhow};
 use crate::cli::{BotWebhookArgs, RunArgs, TestApiArgs};
 use crate::config::{AppConfig, LaunchInstanceConfig, LaunchMode, TelegramMode};
 use crate::i18n::{I18nCatalog, locales_dir};
+use crate::logging::initialize_logging;
 use crate::oci::{CreateInstanceRequest, LaunchPlanner, OciClient};
 
 pub struct App {
@@ -18,6 +19,7 @@ impl App {
 
     pub async fn run_command(&self, args: RunArgs) -> Result<()> {
         let config = self.load_config()?;
+        initialize_logging(&config.app.log_dir)?;
         let i18n = I18nCatalog::initialize(&locales_dir(), config.app.locale.clone())?;
         let credentials = config.oci.resolve_credentials()?;
         let client = OciClient::new(credentials.clone());
@@ -71,6 +73,7 @@ impl App {
 
     pub async fn test_api_command(&self, args: TestApiArgs) -> Result<()> {
         let config = self.load_config()?;
+        initialize_logging(&config.app.log_dir)?;
         let i18n = I18nCatalog::initialize(&locales_dir(), config.app.locale.clone())?;
         let credentials = config.oci.resolve_credentials()?;
         let client = OciClient::new(credentials);
@@ -94,6 +97,7 @@ impl App {
 
     pub async fn bot_webhook_command(&self, args: BotWebhookArgs) -> Result<()> {
         let mut config = self.load_config()?;
+        initialize_logging(&config.app.log_dir)?;
         let i18n = I18nCatalog::initialize(&locales_dir(), config.app.locale.clone())?;
         match (args.set, args.clear) {
             (Some(url), false) => {

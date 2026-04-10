@@ -37,6 +37,8 @@ impl AppConfig {
 pub struct AppSection {
     #[serde(default = "default_locale")]
     pub locale: String,
+    #[serde(default = "default_log_dir")]
+    pub log_dir: PathBuf,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
@@ -274,6 +276,10 @@ fn find_default_oci_config_path() -> Result<PathBuf> {
 
 fn default_locale() -> String {
     "en".to_string()
+}
+
+fn default_log_dir() -> PathBuf {
+    PathBuf::from("logs")
 }
 
 fn default_oci_profile() -> String {
