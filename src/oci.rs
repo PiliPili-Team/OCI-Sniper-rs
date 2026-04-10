@@ -216,7 +216,7 @@ impl LaunchPlanner {
         Self { defaults }
     }
 
-    pub async fn resolve_defaults(&self, client: &OciClient) -> Result<LaunchInstanceConfig> {
+    pub async fn resolve_defaults(&self, client: &OciClient) -> Result<ResolvedLaunch> {
         let compartment_id = client.credentials.tenancy.clone();
         let availability_domain = client
             .get_availability_domains(&compartment_id)
@@ -245,7 +245,7 @@ impl LaunchPlanner {
         let ssh_authorized_keys = read_default_ssh_key()
             .context("failed to resolve default SSH public key for free-tier launch")?;
 
-        Ok(LaunchInstanceConfig {
+        let launch_config = LaunchInstanceConfig {
             availability_domain,
             compartment_id,
             subnet_id: subnet.id,
@@ -263,6 +263,13 @@ impl LaunchPlanner {
             assign_private_dns_record: true,
             assign_ipv6_ip: false,
             ipv6_subnet_cidr: None,
+        };
+
+        Ok(ResolvedLaunch {
+            strategy: LaunchStrategy::FreeTierFallback,
+            launch_config,
+            selected_shape_ocpus: Some(shape.ocpus),
+            selected_shape_memory_in_gbs: Some(shape.memory_in_gbs),
         })
     }
 
@@ -280,6 +287,20 @@ impl LaunchPlanner {
             .find(|image| image.lifecycle_state == "AVAILABLE")
             .context("no Oracle Linux image found for selected shape")
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ResolvedLaunch {
+    pub strategy: LaunchStrategy,
+    pub launch_config: LaunchInstanceConfig,
+    pub selected_shape_ocpus: Option<u32>,
+    pub selected_shape_memory_in_gbs: Option<u32>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LaunchStrategy {
+    ExplicitConfig,
+    FreeTierFallback,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

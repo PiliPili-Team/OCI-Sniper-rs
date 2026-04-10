@@ -4,11 +4,11 @@ use anyhow::{Context, Result, anyhow};
 
 use crate::bot::{clear_webhook, configure_webhook, run_bot};
 use crate::cli::{BotWebhookArgs, RunArgs, TestApiArgs};
-use crate::config::{AppConfig, LaunchInstanceConfig, LaunchMode, TelegramMode};
+use crate::config::{AppConfig, LaunchMode, TelegramMode};
 use crate::i18n::{I18nCatalog, locales_dir};
 use crate::lock::ProcessLock;
 use crate::logging::initialize_logging;
-use crate::oci::{CreateInstanceRequest, LaunchPlanner, OciClient};
+use crate::oci::{CreateInstanceRequest, LaunchPlanner, LaunchStrategy, OciClient, ResolvedLaunch};
 
 pub struct App {
     pub config_path: std::path::PathBuf,
@@ -30,8 +30,8 @@ impl App {
         let i18n = I18nCatalog::initialize(&locales_dir(), locale.clone())?;
         let credentials = config.oci.resolve_credentials()?;
         let client = OciClient::new(credentials.clone());
-        let launch_config = resolve_launch_config(&config, &client).await?;
-        let payload = CreateInstanceRequest::from_launch_config(&launch_config)?;
+        let resolved = resolve_launch_config(&config, &client).await?;
+        let payload = CreateInstanceRequest::from_launch_config(&resolved.launch_config)?;
 
         println!(
             "{}",
@@ -53,6 +53,7 @@ impl App {
             "{}",
             i18n.t(&locale, "cli.shape.current", &[("shape", &payload.shape)])
         );
+        print_launch_diagnostics(&locale, i18n, &resolved);
         println!(
             "{}",
             i18n.t(
@@ -113,7 +114,9 @@ impl App {
         let i18n = I18nCatalog::initialize(&locales_dir(), locale.clone())?;
         let credentials = config.oci.resolve_credentials()?;
         let client = OciClient::new(credentials);
-        let launch_config = resolve_launch_config(&config, &client).await?;
+        let resolved = resolve_launch_config(&config, &client).await?;
+        let launch_config = &resolved.launch_config;
+        print_launch_diagnostics(&locale, i18n, &resolved);
         client
             .test_auth(&launch_config.compartment_id)
             .await
@@ -121,7 +124,7 @@ impl App {
         println!("{}", i18n.t(&locale, "cli.test_api.success", &[]));
 
         if args.dump_launch_payload {
-            let payload = CreateInstanceRequest::from_launch_config(&launch_config)?;
+            let payload = CreateInstanceRequest::from_launch_config(launch_config)?;
             println!("{}", serde_json::to_string_pretty(&payload)?);
         }
 
@@ -171,15 +174,78 @@ impl App {
     }
 }
 
-async fn resolve_launch_config(
-    config: &AppConfig,
-    client: &OciClient,
-) -> Result<LaunchInstanceConfig> {
+async fn resolve_launch_config(config: &AppConfig, client: &OciClient) -> Result<ResolvedLaunch> {
     match config.instance.effective_launch_config() {
-        LaunchMode::Explicit(config) => Ok(config),
+        LaunchMode::Explicit(config) => {
+            let selected_shape_ocpus = config.shape_config.as_ref().map(|shape| shape.ocpus);
+            let selected_shape_memory_in_gbs = config
+                .shape_config
+                .as_ref()
+                .map(|shape| shape.memory_in_gbs);
+            Ok(ResolvedLaunch {
+                strategy: LaunchStrategy::ExplicitConfig,
+                launch_config: config,
+                selected_shape_ocpus,
+                selected_shape_memory_in_gbs,
+            })
+        }
         LaunchMode::FreeTierFallback(defaults) => {
             LaunchPlanner::new(defaults).resolve_defaults(client).await
         }
+    }
+}
+
+fn print_launch_diagnostics(locale: &str, i18n: &I18nCatalog, resolved: &ResolvedLaunch) {
+    println!(
+        "{}",
+        i18n.t(
+            locale,
+            "cli.launch.strategy",
+            &[("strategy", launch_strategy_label(resolved.strategy))]
+        )
+    );
+    println!(
+        "{}",
+        i18n.t(
+            locale,
+            "cli.launch.ad",
+            &[(
+                "availability_domain",
+                &resolved.launch_config.availability_domain
+            )]
+        )
+    );
+    println!(
+        "{}",
+        i18n.t(
+            locale,
+            "cli.launch.subnet",
+            &[("subnet_id", &resolved.launch_config.subnet_id)]
+        )
+    );
+    println!(
+        "{}",
+        i18n.t(
+            locale,
+            "cli.launch.image",
+            &[("image_id", &resolved.launch_config.image_id)]
+        )
+    );
+
+    if let (Some(ocpus), Some(memory)) = (
+        resolved.selected_shape_ocpus,
+        resolved.selected_shape_memory_in_gbs,
+    ) {
+        let ocpus = ocpus.to_string();
+        let memory = memory.to_string();
+        println!(
+            "{}",
+            i18n.t(
+                locale,
+                "cli.launch.shape_config",
+                &[("ocpus", &ocpus), ("memory_in_gbs", &memory)]
+            )
+        );
     }
 }
 
@@ -187,6 +253,13 @@ fn telegram_mode_label(mode: &TelegramMode) -> &'static str {
     match mode {
         TelegramMode::Polling => "polling",
         TelegramMode::Webhook => "webhook",
+    }
+}
+
+fn launch_strategy_label(strategy: LaunchStrategy) -> &'static str {
+    match strategy {
+        LaunchStrategy::ExplicitConfig => "explicit",
+        LaunchStrategy::FreeTierFallback => "free-tier-fallback",
     }
 }
 
